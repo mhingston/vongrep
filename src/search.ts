@@ -2,7 +2,7 @@ import { realpath } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
 import { prepareSource } from './source.ts';
-import type { RelevanceEvaluator, ScoredFragment, SearchOptions, SearchResult, SourceFragment } from './types.ts';
+import type { CacheStats, RelevanceEvaluator, ScoredFragment, SearchOptions, SearchResult, SourceFragment } from './types.ts';
 import { VonEvaluator } from './von.ts';
 
 const DEFAULTS = Object.freeze({
@@ -27,11 +27,6 @@ function overlaps(left: ScoredFragment, right: ScoredFragment): boolean {
   return left.path === right.path && left.startLine <= right.endLine && right.startLine <= left.endLine;
 }
 
-/**
- * Overlapping source windows are useful for scoring but noisy in the final result.
- * Keep the highest-ranked window and suppress lower-ranked windows that cover the
- * same source lines.
- */
 export function selectDistinctFragments(
   ranked: readonly ScoredFragment[],
   threshold: number,
@@ -45,6 +40,19 @@ export function selectDistinctFragments(
     if (selected.length >= limit) break;
   }
   return selected;
+}
+
+function snapshotCacheStats(evaluator: RelevanceEvaluator): CacheStats | null {
+  return evaluator.cacheStats === undefined ? null : { ...evaluator.cacheStats };
+}
+
+function cacheDelta(before: CacheStats | null, after: CacheStats | undefined): CacheStats | null {
+  if (before === null || after === undefined) return null;
+  return {
+    hits: after.hits - before.hits,
+    misses: after.misses - before.misses,
+    writes: after.writes - before.writes,
+  };
 }
 
 export async function searchCode(options: SearchOptions, evaluator?: RelevanceEvaluator): Promise<SearchResult> {
@@ -63,6 +71,7 @@ export async function searchCode(options: SearchOptions, evaluator?: RelevanceEv
   });
   const scorer = evaluator ?? new VonEvaluator();
   const scored: ScoredFragment[] = [];
+  const cacheBefore = snapshotCacheStats(scorer);
 
   for (let index = 0; index < prepared.fragments.length; index += batchSize) {
     const batch: SourceFragment[] = prepared.fragments.slice(index, index + batchSize);
@@ -70,6 +79,7 @@ export async function searchCode(options: SearchOptions, evaluator?: RelevanceEv
   }
 
   scored.sort((a, b) => b.score - a.score || a.path.localeCompare(b.path) || a.startLine - b.startLine);
+  const cache = cacheDelta(cacheBefore, scorer.cacheStats);
 
   return {
     query: options.query,
@@ -78,6 +88,7 @@ export async function searchCode(options: SearchOptions, evaluator?: RelevanceEv
     filesScanned: prepared.filesScanned,
     fragmentsScored: scored.length,
     threshold,
+    ...(cache === null ? {} : { cache }),
     results: selectDistinctFragments(scored, threshold, limit),
   };
 }
