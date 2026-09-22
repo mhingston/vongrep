@@ -69,7 +69,7 @@ function help(): string {
 
 Usage:
   vongrep search --query "Where is session expiry handled?" [options]
-  vongrep inspect [--root .] [--scope src]
+  vongrep inspect [--root .] [--scope src] [--json]
   vongrep doctor [--base-url http://localhost:8000]
   vongrep benchmark --dataset benchmarks.json [--root .] [--limit 5]
   vongrep cache [status|clear] [--json]
@@ -129,6 +129,25 @@ function humanBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
 }
 
+function renderInspect(root: string, report: Awaited<ReturnType<typeof prepareSource>>['report']): string {
+  const exclusions = Object.entries(report.excludedByReason)
+    .filter(([, count]) => count > 0)
+    .sort(([left], [right]) => left.localeCompare(right));
+  const lines = [
+    `vongrep inspect: ${report.eligibleFiles} eligible file(s), ${report.fragments} fragment(s), ${humanBytes(report.eligibleBytes)}`,
+    `root: ${root}`,
+    `discovery: ${report.discovery}`,
+    `scope: ${report.scopes.length === 0 ? 'entire repository' : report.scopes.join(', ')}`,
+    `.vgignore: ${report.vgignore.present ? `${report.vgignore.rules} rule(s)` : 'not present'}`,
+    `discovered candidates: ${report.discoveredFiles}`,
+  ];
+  if (exclusions.length > 0) {
+    lines.push('', 'excluded:');
+    for (const [reason, count] of exclusions) lines.push(`  ${reason}: ${count}`);
+  }
+  return lines.join('\n');
+}
+
 async function version(): Promise<string> {
   const pkg = JSON.parse(await readFile(resolve(PACKAGE_ROOT, 'package.json'), 'utf8')) as { version?: string };
   return pkg.version ?? 'unknown';
@@ -179,7 +198,12 @@ async function main(): Promise<void> {
       maxFragmentChars: 3_500,
       overlapLines: 8,
     });
-    console.log(JSON.stringify({ root: resolve(root), files: prepared.filesScanned, fragments: prepared.fragments.length }, null, 2));
+    const resolvedRoot = resolve(root);
+    if (parsed.flags.has('json')) {
+      console.log(JSON.stringify({ root: resolvedRoot, ...prepared.report }, null, 2));
+    } else {
+      console.log(renderInspect(resolvedRoot, prepared.report));
+    }
     return;
   }
 
