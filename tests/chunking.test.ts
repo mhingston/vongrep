@@ -20,7 +20,7 @@ test('auto chunking aligns TypeScript fragments to top-level declarations', () =
     '}',
   ].join('\n');
 
-  const result = chunkSource('src/handlers.ts', source, OPTIONS, 'auto');
+  const result = chunkSource('src/handlers.ts', source, { ...OPTIONS, maxFragmentLines: 7 }, 'auto');
 
   assert.equal(result.method, 'structure');
   assert.deepEqual(result.fragments.map((fragment) => [fragment.startLine, fragment.endLine]), [[1, 7], [8, 11]]);
@@ -40,7 +40,7 @@ test('auto chunking uses Python top-level declarations', () => {
     '        return True',
   ].join('\n');
 
-  const result = chunkSource('worker.py', source, OPTIONS, 'auto');
+  const result = chunkSource('worker.py', source, { ...OPTIONS, maxFragmentLines: 5 }, 'auto');
   assert.equal(result.method, 'structure');
   assert.deepEqual(declarationStarts('worker.py', source), [2, 5]);
   assert.equal(result.fragments.length, 2);
@@ -75,4 +75,19 @@ test('window mode preserves legacy overlapping line windows', () => {
   const result = chunkSource('src/a.ts', source, { maxFragmentLines: 5, maxFragmentChars: 10_000, overlapLines: 2 }, 'window');
   assert.equal(result.method, 'window');
   assert.deepEqual(result.fragments.map((fragment) => [fragment.startLine, fragment.endLine]), [[1, 5], [4, 8], [7, 11], [10, 12]]);
+});
+
+
+test('auto chunking packs adjacent small declarations within the fragment budget', () => {
+  const source = [
+    'export function first() { return 1; }',
+    '',
+    'export function second() { return 2; }',
+  ].join('\n');
+
+  const result = chunkSource('small.ts', source, OPTIONS, 'auto');
+  assert.equal(result.method, 'structure');
+  assert.equal(result.fragments.length, 1);
+  assert.match(result.fragments[0]?.text ?? '', /function first/);
+  assert.match(result.fragments[0]?.text ?? '', /function second/);
 });
