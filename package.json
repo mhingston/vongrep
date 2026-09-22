@@ -1,9 +1,12 @@
 {
-  "name": "vongrep",
+  "name": "@mhingston5/vongrep",
   "version": "0.1.0",
   "description": "Local semantic code search for coding agents, powered by Von System One decisions.",
   "type": "module",
   "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "engines": {
     "node": ">=22.6.0"
   },

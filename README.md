@@ -65,15 +65,15 @@ vongrep defaults to `http://localhost:8000`.
 
 ### 2. Install vongrep
 
-Until a package release is published, install from a checkout:
+Install the scoped npm package globally:
 
 ```bash
-git clone https://github.com/mhingston/vongrep.git
-cd vongrep
-npm install
-npm run build
-npm link
+npm install --global @mhingston5/vongrep
 ```
+
+The package installs the `vongrep` executable. To run the latest checkout
+instead, clone the repository and use `npm install`, `npm run build`, and
+`npm link`.
 
 Check both pieces are working:
 

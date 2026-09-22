@@ -1,0 +1,3 @@
+interface:
+  display_name: "Vongrep CLI"
+  short_description: "Find code by behavior with the vongrep CLI"
