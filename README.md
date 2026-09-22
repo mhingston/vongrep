@@ -1,14 +1,12 @@
 # vongrep
 
-Semantic code search for coding agents, powered by [Von](https://github.com/wfzyx/von).
+[![CI](https://github.com/mhingston/vongrep/actions/workflows/ci.yml/badge.svg)](https://github.com/mhingston/vongrep/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
+[![Powered by Von](https://img.shields.io/badge/powered%20by-Von-blue)](https://github.com/wfzyx/von)
 
-`vongrep` scans a local repository, breaks text files into bounded source excerpts, asks Von to score each excerpt against a behaviour-oriented question, and returns the original source with paths and line numbers.
+**Find code by what it does — locally.**
 
-It is inspired by [JevGrep](https://github.com/nassim-arifette/jevgrep), but is deliberately local-first: Von runs on your machine, so there is no hosted model provider, API key, or remote source-code disclosure by default.
-
-## Why
-
-Use exact search (`rg`, IDE symbol search) when you know the identifier or literal. Use `vongrep` when you know what the code *does* but not where it lives:
+`vongrep` is semantic grep for codebases. Ask a behaviour-oriented question such as:
 
 ```text
 Where is session expiry handled?
@@ -16,77 +14,176 @@ How are retryable payment failures classified?
 Which code publishes the transcription-complete event?
 ```
 
-## Requirements
+vongrep scans the repository, breaks source into small excerpts, asks [Von](https://github.com/wfzyx/von) to score each excerpt for relevance, and returns the original code with file paths, line ranges, and scores.
 
-- Node.js 22.6+
-- Von 1.1+
-- a running local Von server
+It is inspired by [JevGrep](https://github.com/nassim-arifette/jevgrep), but targets the open-source Von decision model and is local-first by default.
 
-Install and start Von separately:
+## Why vongrep?
+
+Use `rg`, IDE search, or symbol search when you already know the identifier or literal.
+
+Use vongrep when you know **the behaviour you are looking for**, but not the file, class, method, event name, or terminology used by the codebase.
+
+| You know... | Use |
+| --- | --- |
+| exact symbol, filename, string, or regex | `rg` / IDE search |
+| responsibility, behaviour, flow, or concept | `vongrep` |
+| you need a generated explanation | a coding agent after retrieval |
+
+vongrep deliberately returns **source evidence**, not an LLM-generated summary. The calling human or agent can then inspect the real implementation.
+
+## Features
+
+- Semantic code search with Von Noul relevance probabilities.
+- Runs against a local Von server by default.
+- No embedding database or persistent repository index.
+- Respects Git's normal ignored-file set.
+- Skips symlinks, common build/dependency directories, binary files, oversized files, and obvious credential files.
+- Returns original source excerpts with paths and inclusive line ranges.
+- Suppresses overlapping lower-ranked windows so top results contain more distinct evidence.
+- Supports repository-relative scopes.
+- Human-readable and JSON output.
+- Offline `inspect` command to see scan size before inference.
+- `doctor` command to verify the Von service.
+- stdio MCP server for coding agents.
+- Built-in labelled retrieval benchmark with Hit@K, MRR, and expected-path recall.
+- Zero runtime npm dependencies.
+
+## Quick start
+
+### 1. Start Von
+
+Install Von and run its local HTTP server:
 
 ```bash
 pip install von-sdk
 von serve --host 127.0.0.1 --port 8000
 ```
 
-Then install vongrep from a checkout:
+vongrep defaults to `http://localhost:8000`.
+
+### 2. Install vongrep
+
+Until a package release is published, install from a checkout:
 
 ```bash
+git clone https://github.com/mhingston/vongrep.git
+cd vongrep
 npm install
 npm run build
 npm link
 ```
 
-## Usage
-
-Check the Von server:
+Check both pieces are working:
 
 ```bash
+vongrep --version
 vongrep doctor
 ```
 
-Inspect how much source would be searched without invoking Von:
+### 3. Search a repository
 
-```bash
-vongrep inspect --root .
-```
-
-Search by behaviour:
+From the repository you want to search:
 
 ```bash
 vongrep search --query "Where is session expiry handled?"
 ```
 
-Narrow the search and tune result selection:
+Example result:
+
+```text
+vongrep: 2 result(s) from 84 fragments in 19 files
+model: von-1.1.0  threshold: 0.50
+
+src/auth/session.ts:41-76  score=0.934
+...original source excerpt...
+
+src/http/middleware.ts:18-54  score=0.781
+...original source excerpt...
+```
+
+## Search options
+
+Search only selected parts of a repository:
 
 ```bash
 vongrep search \
   --query "How are permissions checked?" \
   --scope src \
-  --scope tests \
-  --threshold 0.6 \
+  --scope tests
+```
+
+Tune the relevance threshold and maximum number of returned excerpts:
+
+```bash
+vongrep search \
+  --query "Where is cache invalidation triggered?" \
+  --threshold 0.65 \
   --limit 8
 ```
 
-Machine-readable output:
+Use a positional question if you prefer:
 
 ```bash
-vongrep search --query "Where is the cache invalidated?" --json
+vongrep search "Where is the retry policy applied?"
 ```
 
-Use a non-default Von server with `VON_BASE_URL` or `--base-url`. If the Von server is configured with `VON_API_KEY`, provide the same environment variable to `vongrep`.
+Emit machine-readable output:
 
-## MCP
+```bash
+vongrep search --query "Where is the retry policy applied?" --json
+```
 
-`vongrep` exposes the same search path as a stdio MCP server:
+Search another repository without changing directory:
+
+```bash
+vongrep search \
+  --root /path/to/project \
+  --query "Where is the database transaction committed?"
+```
+
+## Inspect before searching
+
+`inspect` walks and chunks the source without contacting Von:
+
+```bash
+vongrep inspect --root .
+```
+
+Example:
+
+```json
+{
+  "root": "/path/to/project",
+  "files": 142,
+  "fragments": 917
+}
+```
+
+This is useful for spotting unexpectedly large search scopes before running inference.
+
+## MCP for coding agents
+
+Start the stdio MCP server:
 
 ```bash
 vongrep mcp --root /absolute/path/to/repository
 ```
 
-The MCP tool is `semantic_search_code` and accepts `query`, optional `scope`, `threshold`, and `limit` arguments.
+It exposes one read-only tool:
 
-Example client configuration:
+```text
+semantic_search_code
+```
+
+The tool accepts:
+
+- `query` — the behaviour or concept to find.
+- `scope` — optional repository-relative paths.
+- `threshold` — optional minimum Von relevance probability.
+- `limit` — optional result limit.
+
+### Generic MCP configuration
 
 ```json
 {
@@ -99,15 +196,125 @@ Example client configuration:
 }
 ```
 
+### Claude Code
+
+```bash
+claude mcp add --transport stdio vongrep -- \
+  vongrep mcp --root "/absolute/path/to/repository"
+```
+
+### Codex
+
+```toml
+[mcp_servers.vongrep]
+command = "vongrep"
+args = ["mcp", "--root", "/absolute/path/to/repository"]
+tool_timeout_sec = 120
+```
+
+## Benchmark retrieval quality
+
+vongrep includes a small evaluation harness so search changes can be measured rather than judged by anecdotes.
+
+Create a labelled dataset:
+
+```json
+{
+  "name": "my-project",
+  "cases": [
+    {
+      "query": "Where is session expiry handled?",
+      "expected_paths": ["src/auth/session.ts"]
+    },
+    {
+      "query": "Where is the order-completed event published?",
+      "expected_paths": ["src/orders/events.ts"],
+      "scope": ["src"]
+    }
+  ]
+}
+```
+
+Run it:
+
+```bash
+vongrep benchmark --dataset benchmark.json --limit 5
+```
+
+The report includes:
+
+- **Hit@K** — how often at least one expected file appears in the first K results.
+- **MRR** — mean reciprocal rank of the first expected file.
+- **Path recall** — how many labelled expected paths were retrieved.
+
+A small self-search dataset is included:
+
+```bash
+vongrep benchmark --dataset benchmarks/vongrep-smoke.json --limit 5
+```
+
+Use `--json` for the full per-case result.
+
+## Configure Von
+
+Set a different Von endpoint with either:
+
+```bash
+export VON_BASE_URL=http://localhost:8000
+```
+
+or:
+
+```bash
+vongrep search \
+  --base-url http://localhost:8000 \
+  --query "Where are feature flags evaluated?"
+```
+
+If the Von server requires bearer authentication, set:
+
+```bash
+export VON_API_KEY=...
+```
+
+## Privacy and source handling
+
+The default endpoint is local, so source evaluation stays on the machine when Von is running locally.
+
+During a search, vongrep sends each eligible source excerpt, its path and line range, and the search question to the configured Von endpoint. **If you point `VON_BASE_URL` at a remote server, those excerpts leave the machine.**
+
+Before evaluation vongrep excludes common dependency/build directories, binary files, symlinks, oversized files, Git-ignored files, and obvious credential/private-key filenames. These filters are guardrails, not a guarantee that arbitrary source contains no secrets.
+
+Use `vongrep inspect` and `--scope` when you need a narrower boundary.
+
 ## How it works
 
-1. Enumerates tracked and untracked non-ignored Git files with `git ls-files -co --exclude-standard`; falls back to a conservative filesystem walk outside Git repositories.
-2. Skips symlinks, common build/dependency directories, binary files, oversized files, and obvious credential files.
-3. Splits UTF-8 source into small overlapping line windows.
-4. Sends batches to Von's `/v1/systemone` interface as Noul questions. The search question is shared state; each excerpt is an independently scored question.
-5. Sorts by Von's affirmative probability and returns original excerpts above the requested threshold.
+1. **Discover** — use `git ls-files -co --exclude-standard` where available, with a conservative filesystem fallback outside Git.
+2. **Filter** — reject unsafe or unsuitable files before reading them as source.
+3. **Chunk** — create bounded overlapping line windows so returned evidence remains precise.
+4. **Score** — batch excerpts into Von `noul` questions over `/v1/systemone`, sharing the user's search question as state.
+5. **Rank** — sort by affirmative probability and suppress lower-ranked overlapping excerpts.
+6. **Return evidence** — output the original source rather than generating an answer about it.
 
-The default batch size is intentionally small because Von evaluates the shared state and questions inside its finite context window. vongrep does not build or persist an embedding index.
+The initial implementation intentionally has no persistent index, embedding store, or score cache. The included benchmark is the gate for deciding which optimisations are worth adding.
+
+## CLI reference
+
+```text
+vongrep search --query <question> [--root <path>] [--scope <path>...]
+               [--threshold <0..1>] [--limit <n>] [--base-url <url>] [--json]
+
+vongrep inspect [--root <path>] [--scope <path>...]
+
+vongrep doctor [--base-url <url>]
+
+vongrep benchmark --dataset <path> [--root <path>] [--limit <k>]
+                  [--base-url <url>] [--json]
+
+vongrep mcp [--root <path>] [--base-url <url>]
+
+vongrep --version
+```
 
 ## Development
 
@@ -116,14 +323,20 @@ npm install
 npm run verify
 ```
 
-## Status
+`npm run verify` runs TypeScript checking, unit tests, and a production build. CI runs the same gate for pull requests.
 
-This is an initial implementation. The next useful validation step is a small relevance benchmark against representative repositories before adding caching, structural chunking, or more elaborate scan planning.
+## Project status
+
+vongrep is early-stage. The current goal is to establish whether local Von scoring is sufficiently useful for behaviour-oriented code retrieval, then improve the smallest mechanism demonstrated by benchmark evidence.
+
+Likely follow-on work includes structural chunking, score caching, richer exclusion controls, and larger cross-repository retrieval evaluations.
 
 ## Acknowledgements
 
-The product shape and evidence-returning search flow are inspired by [nassim-arifette/jevgrep](https://github.com/nassim-arifette/jevgrep). Von is maintained separately by [wfzyx/von](https://github.com/wfzyx/von).
+vongrep is inspired by the product shape and evidence-returning search flow of [nassim-arifette/jevgrep](https://github.com/nassim-arifette/jevgrep).
+
+Inference is provided by [wfzyx/von](https://github.com/wfzyx/von), an open-source System One decision model with a TypeSafe-compatible HTTP protocol.
 
 ## License
 
-MIT
+[MIT](LICENSE) © 2026 Mark Hingston.
