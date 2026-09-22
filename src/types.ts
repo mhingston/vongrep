@@ -10,6 +10,12 @@ export type ScoredFragment = SourceFragment & {
   score: number;
 };
 
+export type CacheStats = {
+  hits: number;
+  misses: number;
+  writes: number;
+};
+
 export type SearchOptions = {
   root: string;
   query: string;
@@ -30,10 +36,12 @@ export type SearchResult = {
   filesScanned: number;
   fragmentsScored: number;
   threshold: number;
+  cache?: CacheStats;
   results: ScoredFragment[];
 };
 
 export interface RelevanceEvaluator {
   readonly model: string;
+  readonly cacheStats?: CacheStats;
   score(query: string, fragments: readonly SourceFragment[]): Promise<ScoredFragment[]>;
 }
