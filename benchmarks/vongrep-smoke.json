@@ -22,7 +22,7 @@
     {
       "query": "Where does the CLI run the benchmark chunking comparison and normal benchmark path?",
       "expected_locations": [
-        { "path": "src/cli.ts", "start_line": 264, "end_line": 287 }
+        { "path": "src/cli.ts", "start_line": 266, "end_line": 290 }
       ]
     },
     {
