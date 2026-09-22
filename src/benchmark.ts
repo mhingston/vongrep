@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
 import { searchCode } from './search.ts';
-import type { RelevanceEvaluator } from './types.ts';
+import type { ChunkingMode, RelevanceEvaluator } from './types.ts';
 
 export type BenchmarkCase = {
   query: string;
@@ -29,6 +29,7 @@ export type BenchmarkResult = {
   dataset: string;
   cases: number;
   k: number;
+  chunking: ChunkingMode;
   hitAtK: number;
   mrr: number;
   meanPathRecall: number;
@@ -86,6 +87,7 @@ export async function runBenchmark(options: {
   root: string;
   dataset: BenchmarkDataset;
   k?: number;
+  chunking?: ChunkingMode;
 }, evaluator?: RelevanceEvaluator): Promise<BenchmarkResult> {
   const k = options.k ?? 5;
   if (!Number.isSafeInteger(k) || k < 1 || k > 100) {
@@ -101,6 +103,7 @@ export async function runBenchmark(options: {
       scopes: item.scope,
       threshold: 0,
       limit: k,
+      chunking: options.chunking ?? 'auto',
     }, evaluator);
     const returnedPaths = search.results.map((result) => normalizePath(result.path));
     const expected = new Set(item.expected_paths.map(normalizePath));
@@ -123,6 +126,7 @@ export async function runBenchmark(options: {
     dataset: options.dataset.name ?? 'benchmark',
     cases: count,
     k,
+    chunking: options.chunking ?? 'auto',
     hitAtK: results.filter((item) => item.firstRelevantRank !== null).length / count,
     mrr: results.reduce((sum, item) => sum + item.reciprocalRank, 0) / count,
     meanPathRecall: results.reduce((sum, item) => sum + item.pathRecall, 0) / count,
