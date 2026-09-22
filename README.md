@@ -36,7 +36,7 @@ vongrep deliberately returns **source evidence**, not an LLM-generated summary. 
 
 - Semantic code search with Von Noul relevance probabilities.
 - Runs against a local Von server by default.
-- No embedding database or persistent repository index.
+- No embedding database or persistent repository index; repeat scoring uses a local content-addressed cache.
 - Respects Git's normal ignored-file set.
 - Skips symlinks, common build/dependency directories, binary files, oversized files, and obvious credential files.
 - Returns original source excerpts with paths and inclusive line ranges.
@@ -253,7 +253,7 @@ A small self-search dataset is included:
 vongrep benchmark --dataset benchmarks/vongrep-smoke.json --limit 5
 ```
 
-Use `--json` for the full per-case result.
+Use `--json` for the full per-case result. Benchmarks deliberately bypass the score cache so evaluation runs are not silently satisfied by earlier searches.
 
 ## Configure Von
 
@@ -285,7 +285,7 @@ During a search, vongrep sends each eligible source excerpt, its path and line r
 
 Before evaluation vongrep excludes common dependency/build directories, binary files, symlinks, oversized files, Git-ignored files, and obvious credential/private-key filenames. These filters are guardrails, not a guarantee that arbitrary source contains no secrets.
 
-Use `vongrep inspect` and `--scope` when you need a narrower boundary.
+Use `vongrep inspect` and `--scope` when you need a narrower boundary. The score cache does not store source text or query text; cache files contain only content-derived hashes, probabilities, and timestamps.
 
 ## How it works
 
@@ -302,7 +302,7 @@ The initial implementation intentionally has no persistent index, embedding stor
 
 ```text
 vongrep search --query <question> [--root <path>] [--scope <path>...]
-               [--threshold <0..1>] [--limit <n>] [--base-url <url>] [--json]
+               [--threshold <0..1>] [--limit <n>] [--base-url <url>] [--no-cache] [--json]
 
 vongrep inspect [--root <path>] [--scope <path>...]
 
@@ -329,7 +329,7 @@ npm run verify
 
 vongrep is early-stage. The current goal is to establish whether local Von scoring is sufficiently useful for behaviour-oriented code retrieval, then improve the smallest mechanism demonstrated by benchmark evidence.
 
-Likely follow-on work includes structural chunking, score caching, richer exclusion controls, and larger cross-repository retrieval evaluations.
+Likely follow-on work includes structural chunking, richer exclusion controls, and larger cross-repository retrieval evaluations.
 
 ## Acknowledgements
 
