@@ -104,3 +104,51 @@ test('prepareSource fails closed when .vgignore exceeds its safety limit', async
     /\.vgignore exceeds the 256 KiB safety limit/,
   );
 });
+
+
+test('prepareSource reports structured and window fallback files', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'vongrep-source-'));
+  await writeFile(join(root, 'handlers.ts'), [
+    'export function first() { return 1; }',
+    '',
+    'export function second() { return 2; }',
+  ].join('\n'));
+  await writeFile(join(root, 'README.md'), '# Guide\nSome prose.\n');
+
+  const prepared = await prepareSource(root, [], {
+    maxFileBytes: 1024,
+    maxFragmentLines: 60,
+    maxFragmentChars: 3500,
+    overlapLines: 8,
+    chunking: 'auto',
+  });
+
+  assert.deepEqual(prepared.report.chunking, {
+    mode: 'auto',
+    structuredFiles: 1,
+    windowFiles: 1,
+  });
+});
+
+test('prepareSource can force legacy window chunking', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'vongrep-source-'));
+  await writeFile(join(root, 'handlers.ts'), [
+    'export function first() { return 1; }',
+    '',
+    'export function second() { return 2; }',
+  ].join('\n'));
+
+  const prepared = await prepareSource(root, [], {
+    maxFileBytes: 1024,
+    maxFragmentLines: 60,
+    maxFragmentChars: 3500,
+    overlapLines: 8,
+    chunking: 'window',
+  });
+
+  assert.deepEqual(prepared.report.chunking, {
+    mode: 'window',
+    structuredFiles: 0,
+    windowFiles: 1,
+  });
+});
