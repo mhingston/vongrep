@@ -1,6 +1,8 @@
 import type { Readable, Writable } from 'node:stream';
 
+import { CachingEvaluator, ScoreCache } from './cache.ts';
 import { searchCode } from './search.ts';
+import type { RelevanceEvaluator } from './types.ts';
 import { VonEvaluator } from './von.ts';
 
 const TOOL_NAME = 'semantic_search_code';
@@ -10,6 +12,7 @@ export type McpOptions = {
   root: string;
   baseURL?: string;
   apiKey?: string;
+  cache?: boolean;
   input?: Readable;
   output?: Writable;
 };
@@ -21,10 +24,15 @@ type JsonRpcRequest = {
   params?: Record<string, unknown>;
 };
 
+function createEvaluator(options: McpOptions): RelevanceEvaluator {
+  const von = new VonEvaluator({ baseURL: options.baseURL, apiKey: options.apiKey });
+  return options.cache === false ? von : new CachingEvaluator(von, new ScoreCache());
+}
+
 export async function runMcpServer(options: McpOptions): Promise<void> {
   const input = options.input ?? process.stdin;
   const output = options.output ?? process.stdout;
-  const evaluator = new VonEvaluator({ baseURL: options.baseURL, apiKey: options.apiKey });
+  const evaluator = createEvaluator(options);
   let buffer = '';
 
   const send = (message: unknown): void => { output.write(`${JSON.stringify(message)}\n`); };
