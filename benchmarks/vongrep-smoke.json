@@ -1,0 +1,41 @@
+{
+  "name": "vongrep-smoke",
+  "cases": [
+    {
+      "query": "Where are repository candidates filtered and converted into source fragments?",
+      "expected_locations": [
+        { "path": "src/source.ts", "start_line": 270, "end_line": 357 }
+      ]
+    },
+    {
+      "query": "Where are code excerpts turned into Von Noul questions and sent to the System One endpoint?",
+      "expected_locations": [
+        { "path": "src/von.ts", "start_line": 34, "end_line": 60 }
+      ]
+    },
+    {
+      "query": "Where is the semantic_search_code MCP tool schema exposed and then executed?",
+      "expected_locations": [
+        { "path": "src/mcp.ts", "start_line": 56, "end_line": 103 }
+      ]
+    },
+    {
+      "query": "Where does the CLI run the benchmark chunking comparison and normal benchmark path?",
+      "expected_locations": [
+        { "path": "src/cli.ts", "start_line": 266, "end_line": 290 }
+      ]
+    },
+    {
+      "query": "Where are cached relevance scores reused and misses delegated to the underlying evaluator?",
+      "expected_locations": [
+        { "path": "src/cache.ts", "start_line": 122, "end_line": 149 }
+      ]
+    },
+    {
+      "query": "Where does declaration-aware chunking fall back to legacy line windows?",
+      "expected_locations": [
+        { "path": "src/chunking.ts", "start_line": 168, "end_line": 179 }
+      ]
+    }
+  ]
+}
