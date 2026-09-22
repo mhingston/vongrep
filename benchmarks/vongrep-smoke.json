@@ -1,0 +1,21 @@
+{
+  "name": "vongrep-smoke",
+  "cases": [
+    {
+      "query": "Where are repository files discovered, filtered, and chunked into source fragments?",
+      "expected_paths": ["src/source.ts"]
+    },
+    {
+      "query": "Where are code excerpts turned into Von Noul questions and sent to the System One endpoint?",
+      "expected_paths": ["src/von.ts"]
+    },
+    {
+      "query": "Where is the semantic_search_code MCP tool exposed and executed?",
+      "expected_paths": ["src/mcp.ts"]
+    },
+    {
+      "query": "Where does the command line parse and execute search, inspect, doctor, and MCP commands?",
+      "expected_paths": ["src/cli.ts"]
+    }
+  ]
+}
