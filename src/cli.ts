@@ -8,7 +8,7 @@ import { CachingEvaluator, ScoreCache } from './cache.ts';
 import { prepareSource } from './source.ts';
 import { runMcpServer } from './mcp.ts';
 import { searchCode } from './search.ts';
-import type { RelevanceEvaluator } from './types.ts';
+import type { ChunkingMode, RelevanceEvaluator } from './types.ts';
 import { checkVonHealth, VonEvaluator } from './von.ts';
 
 const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -59,6 +59,14 @@ function numberFlag(parsed: Parsed, key: string): number | undefined {
   return parsedValue;
 }
 
+function chunkingFlag(parsed: Parsed): ChunkingMode {
+  const value = one(parsed, 'chunking') ?? 'auto';
+  if (value !== 'auto' && value !== 'window') {
+    throw new Error('--chunking must be auto or window');
+  }
+  return value;
+}
+
 function createSearchEvaluator(baseURL: string, cacheEnabled: boolean): RelevanceEvaluator {
   const von = new VonEvaluator({ baseURL, apiKey: process.env.VON_API_KEY });
   return cacheEnabled ? new CachingEvaluator(von, new ScoreCache()) : von;
@@ -69,11 +77,11 @@ function help(): string {
 
 Usage:
   vongrep search --query "Where is session expiry handled?" [options]
-  vongrep inspect [--root .] [--scope src] [--json]
+  vongrep inspect [--root .] [--scope src] [--chunking auto|window] [--json]
   vongrep doctor [--base-url http://localhost:8000]
-  vongrep benchmark --dataset benchmarks.json [--root .] [--limit 5]
+  vongrep benchmark --dataset benchmarks.json [--root .] [--limit 5] [--chunking auto|window]
   vongrep cache [status|clear] [--json]
-  vongrep mcp [--root .] [--base-url http://localhost:8000] [--no-cache]
+  vongrep mcp [--root .] [--base-url http://localhost:8000] [--chunking auto|window] [--no-cache]
 
 Search options:
   --root <path>        Repository root (default: .)
@@ -81,12 +89,14 @@ Search options:
   --threshold <0..1>   Minimum Von relevance probability (default: 0.5)
   --limit <n>          Maximum excerpts to return (default: 10)
   --base-url <url>     Von server URL (default: VON_BASE_URL or http://localhost:8000)
+  --chunking <mode>     auto (default) or window
   --no-cache           Bypass the local score cache
   --json               Emit JSON instead of human-readable output
 
 Benchmark options:
   --dataset <path>     JSON dataset containing query + expected_paths cases
   --limit <n>          Evaluate Hit@K using K results (default: 5)
+  --chunking <mode>     auto (default) or window
   --json               Emit the full benchmark result as JSON
   Benchmarks always bypass the score cache.
 
@@ -98,6 +108,7 @@ function render(result: Awaited<ReturnType<typeof searchCode>>): string {
   const lines = [
     `vongrep: ${result.results.length} result(s) from ${result.fragmentsScored} fragments in ${result.filesScanned} files`,
     `model: ${result.model}  threshold: ${result.threshold.toFixed(2)}`,
+    `chunking: ${result.chunking.mode} (${result.chunking.structuredFiles} structured, ${result.chunking.windowFiles} windowed)`,
   ];
   if (result.cache !== undefined) {
     lines.push(`cache: ${result.cache.hits} hit(s), ${result.cache.misses} miss(es)`);
@@ -113,7 +124,7 @@ function render(result: Awaited<ReturnType<typeof searchCode>>): string {
 
 function renderBenchmark(result: Awaited<ReturnType<typeof runBenchmark>>): string {
   const lines = [
-    `${result.dataset}: ${result.cases} case(s), Hit@${result.k} ${(result.hitAtK * 100).toFixed(1)}%, MRR ${result.mrr.toFixed(3)}, path recall ${(result.meanPathRecall * 100).toFixed(1)}%`,
+    `${result.dataset}: ${result.cases} case(s), chunking ${result.chunking}, Hit@${result.k} ${(result.hitAtK * 100).toFixed(1)}%, MRR ${result.mrr.toFixed(3)}, path recall ${(result.meanPathRecall * 100).toFixed(1)}%`,
     '',
   ];
   for (const item of result.results) {
@@ -138,6 +149,7 @@ function renderInspect(root: string, report: Awaited<ReturnType<typeof prepareSo
     `root: ${root}`,
     `discovery: ${report.discovery}`,
     `scope: ${report.scopes.length === 0 ? 'entire repository' : report.scopes.join(', ')}`,
+    `chunking: ${report.chunking.mode} (${report.chunking.structuredFiles} structured, ${report.chunking.windowFiles} windowed)`,
     `.vgignore: ${report.vgignore.present ? `${report.vgignore.rules} rule(s)` : 'not present'}`,
     `discovered candidates: ${report.discoveredFiles}`,
   ];
@@ -197,6 +209,7 @@ async function main(): Promise<void> {
       maxFragmentLines: 60,
       maxFragmentChars: 3_500,
       overlapLines: 8,
+      chunking: chunkingFlag(parsed),
     });
     const resolvedRoot = resolve(root);
     if (parsed.flags.has('json')) {
@@ -213,6 +226,7 @@ async function main(): Promise<void> {
       baseURL,
       apiKey: process.env.VON_API_KEY,
       cache: !parsed.flags.has('no-cache'),
+      chunking: chunkingFlag(parsed),
     });
     return;
   }
@@ -226,6 +240,7 @@ async function main(): Promise<void> {
       root,
       dataset,
       k: numberFlag(parsed, 'limit'),
+      chunking: chunkingFlag(parsed),
     }, evaluator);
     console.log(parsed.flags.has('json') ? JSON.stringify(result, null, 2) : renderBenchmark(result));
     return;
@@ -241,6 +256,7 @@ async function main(): Promise<void> {
       scopes: many(parsed, 'scope'),
       threshold: numberFlag(parsed, 'threshold'),
       limit: numberFlag(parsed, 'limit'),
+      chunking: chunkingFlag(parsed),
     }, evaluator);
     console.log(parsed.flags.has('json') ? JSON.stringify(result, null, 2) : render(result));
     return;
