@@ -23,6 +23,30 @@ function validate(options: SearchOptions): void {
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new Error('limit must be an integer from 1 to 100');
 }
 
+function overlaps(left: ScoredFragment, right: ScoredFragment): boolean {
+  return left.path === right.path && left.startLine <= right.endLine && right.startLine <= left.endLine;
+}
+
+/**
+ * Overlapping source windows are useful for scoring but noisy in the final result.
+ * Keep the highest-ranked window and suppress lower-ranked windows that cover the
+ * same source lines.
+ */
+export function selectDistinctFragments(
+  ranked: readonly ScoredFragment[],
+  threshold: number,
+  limit: number,
+): ScoredFragment[] {
+  const selected: ScoredFragment[] = [];
+  for (const fragment of ranked) {
+    if (fragment.score < threshold) continue;
+    if (selected.some((existing) => overlaps(existing, fragment))) continue;
+    selected.push(fragment);
+    if (selected.length >= limit) break;
+  }
+  return selected;
+}
+
 export async function searchCode(options: SearchOptions, evaluator?: RelevanceEvaluator): Promise<SearchResult> {
   validate(options);
   const threshold = options.threshold ?? DEFAULTS.threshold;
@@ -54,6 +78,6 @@ export async function searchCode(options: SearchOptions, evaluator?: RelevanceEv
     filesScanned: prepared.filesScanned,
     fragmentsScored: scored.length,
     threshold,
-    results: scored.filter((fragment) => fragment.score >= threshold).slice(0, limit),
+    results: selectDistinctFragments(scored, threshold, limit),
   };
 }
