@@ -190,10 +190,21 @@ export function isVgIgnored(path: string, rules: readonly VgIgnoreRule[]): boole
 
 async function loadVgIgnore(root: string): Promise<{ present: boolean; rules: VgIgnoreRule[] }> {
   try {
-    const content = await readFile(resolve(root, '.vgignore'), 'utf8');
+    const buffer = await readFile(resolve(root, '.vgignore'));
+    if (buffer.length > 256 * 1024) {
+      throw new Error('.vgignore exceeds the 256 KiB safety limit');
+    }
+    const content = buffer.toString('utf8');
+    if (content.includes('\uFFFD')) {
+      throw new Error('.vgignore must be valid UTF-8');
+    }
     return { present: true, rules: parseVgIgnore(content) };
-  } catch {
-    return { present: false, rules: [] };
+  } catch (cause) {
+    if (typeof cause === 'object' && cause !== null && 'code' in cause
+      && (cause as NodeJS.ErrnoException).code === 'ENOENT') {
+      return { present: false, rules: [] };
+    }
+    throw cause;
   }
 }
 
