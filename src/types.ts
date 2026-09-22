@@ -16,6 +16,14 @@ export type CacheStats = {
   writes: number;
 };
 
+export type ChunkingMode = 'auto' | 'window';
+
+export type ChunkingStats = {
+  mode: ChunkingMode;
+  structuredFiles: number;
+  windowFiles: number;
+};
+
 export type SearchOptions = {
   root: string;
   query: string;
@@ -27,6 +35,7 @@ export type SearchOptions = {
   maxFragmentChars?: number;
   overlapLines?: number;
   batchSize?: number;
+  chunking?: ChunkingMode;
 };
 
 export type SearchResult = {
@@ -36,6 +45,7 @@ export type SearchResult = {
   filesScanned: number;
   fragmentsScored: number;
   threshold: number;
+  chunking: ChunkingStats;
   cache?: CacheStats;
   results: ScoredFragment[];
 };
