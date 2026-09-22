@@ -162,7 +162,7 @@ function renderComparison(result: Awaited<ReturnType<typeof compareChunking>>): 
     `location MRR            ${(result.auto.locationMrr?.toFixed(3) ?? 'n/a').padEnd(10)} ${(result.window.locationMrr?.toFixed(3) ?? 'n/a').padEnd(10)} ${signed(result.delta.locationMrr)}`,
     `location recall         ${percent(result.auto.meanLocationRecall).padEnd(10)} ${percent(result.window.meanLocationRecall).padEnd(10)} ${signed(result.delta.meanLocationRecall, 100)}pp`,
     `mean fragments scored   ${result.auto.meanFragmentsScored.toFixed(1).padEnd(10)} ${result.window.meanFragmentsScored.toFixed(1).padEnd(10)} ${signed(result.delta.meanFragmentsScored)}`,
-    `total time              `${result.auto.totalElapsedMs}ms`.padEnd(10) + ' ' + `${result.window.totalElapsedMs}ms`.padEnd(10) + ' ' + `${result.delta.totalElapsedMs >= 0 ? '+' : ''}${result.delta.totalElapsedMs}ms`,
+    'total time              ' + `${result.auto.totalElapsedMs}ms`.padEnd(10) + ' ' + `${result.window.totalElapsedMs}ms`.padEnd(10) + ' ' + `${result.delta.totalElapsedMs >= 0 ? '+' : ''}${result.delta.totalElapsedMs}ms`,
   ].join('\n');
 }
 
@@ -269,6 +269,9 @@ async function main(): Promise<void> {
     const dataset = await loadBenchmarkDataset(datasetPath);
     const evaluator = new VonEvaluator({ baseURL, apiKey: process.env.VON_API_KEY });
     if (parsed.flags.has('compare-chunking')) {
+      if (parsed.flags.has('chunking')) {
+        throw new Error('--compare-chunking cannot be combined with --chunking');
+      }
       const result = await compareChunking({
         root,
         dataset,
