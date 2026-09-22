@@ -41,9 +41,10 @@ test('runBenchmark reports hit@k, MRR and expected-path recall', async () => {
       { query: 'Where is the event published?', expected_paths: ['queue.ts'] },
     ],
   });
-  const result = await runBenchmark({ root, dataset, k: 2 }, new QueryAwareEvaluator());
+  const result = await runBenchmark({ root, dataset, k: 2, chunking: 'window' }, new QueryAwareEvaluator());
 
   assert.equal(result.cases, 2);
+  assert.equal(result.chunking, 'window');
   assert.equal(result.hitAtK, 1);
   assert.equal(result.mrr, 1);
   assert.equal(result.meanPathRecall, 1);
