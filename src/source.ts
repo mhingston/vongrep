@@ -27,9 +27,44 @@ export type SourceOptions = {
   overlapLines: number;
 };
 
+export type ExclusionReason =
+  | 'out_of_scope'
+  | 'vgignore'
+  | 'control_file'
+  | 'sensitive_name'
+  | 'builtin_directory'
+  | 'outside_root'
+  | 'unavailable'
+  | 'not_regular_file'
+  | 'symlink'
+  | 'empty'
+  | 'too_large'
+  | 'binary'
+  | 'invalid_utf8';
+
+export type SourceReport = {
+  discovery: 'git' | 'filesystem';
+  discoveredFiles: number;
+  eligibleFiles: number;
+  eligibleBytes: number;
+  fragments: number;
+  scopes: string[];
+  vgignore: {
+    present: boolean;
+    rules: number;
+  };
+  excludedByReason: Record<ExclusionReason, number>;
+};
+
 export type PreparedSource = {
   filesScanned: number;
   fragments: SourceFragment[];
+  report: SourceReport;
+};
+
+type VgIgnoreRule = {
+  negated: boolean;
+  regex: RegExp;
 };
 
 function normalizePath(path: string): string {
@@ -81,8 +116,85 @@ async function walkFiles(root: string, directory = root): Promise<string[]> {
   return files;
 }
 
-async function listFiles(root: string): Promise<string[]> {
-  return (await gitFiles(root)) ?? walkFiles(root);
+async function listFiles(root: string): Promise<{ discovery: 'git' | 'filesystem'; files: string[] }> {
+  const git = await gitFiles(root);
+  return git === null
+    ? { discovery: 'filesystem', files: await walkFiles(root) }
+    : { discovery: 'git', files: git };
+}
+
+function escapeRegex(character: string): string {
+  return /[\\^$.*+?()[\]{}|]/.test(character) ? `\\${character}` : character;
+}
+
+function globBody(pattern: string): string {
+  let result = '';
+  for (let index = 0; index < pattern.length; index += 1) {
+    const current = pattern[index]!;
+    const next = pattern[index + 1];
+    if (current === '*' && next === '*') {
+      if (pattern[index + 2] === '/') {
+        result += '(?:.*/)?';
+        index += 2;
+      } else {
+        result += '.*';
+        index += 1;
+      }
+    } else if (current === '*') {
+      result += '[^/]*';
+    } else if (current === '?') {
+      result += '[^/]';
+    } else {
+      result += escapeRegex(current);
+    }
+  }
+  return result;
+}
+
+export function parseVgIgnore(content: string): VgIgnoreRule[] {
+  const rules: VgIgnoreRule[] = [];
+
+  for (const rawLine of content.replaceAll('\r\n', '\n').split('\n')) {
+    let line = rawLine.trim();
+    if (line.length === 0 || line.startsWith('#')) continue;
+
+    let negated = false;
+    if (line.startsWith('!')) {
+      negated = true;
+      line = line.slice(1);
+      if (line.length === 0) continue;
+    }
+
+    const anchored = line.startsWith('/');
+    if (anchored) line = line.slice(1);
+    const directoryOnly = line.endsWith('/');
+    if (directoryOnly) line = line.slice(0, -1);
+    if (line.length === 0) continue;
+
+    const hasSlash = line.includes('/');
+    const prefix = anchored || hasSlash ? '^' : '(?:^|/)';
+    const suffix = directoryOnly ? '(?:/.*)?$' : '$';
+    rules.push({ negated, regex: new RegExp(`${prefix}${globBody(line)}${suffix}`) });
+  }
+
+  return rules;
+}
+
+export function isVgIgnored(path: string, rules: readonly VgIgnoreRule[]): boolean {
+  let ignored = false;
+  for (const rule of rules) {
+    if (rule.regex.test(path)) ignored = !rule.negated;
+  }
+  return ignored;
+}
+
+async function loadVgIgnore(root: string): Promise<{ present: boolean; rules: VgIgnoreRule[] }> {
+  try {
+    const content = await readFile(resolve(root, '.vgignore'), 'utf8');
+    return { present: true, rules: parseVgIgnore(content) };
+  } catch {
+    return { present: false, rules: [] };
+  }
 }
 
 function looksBinary(buffer: Buffer): boolean {
@@ -137,48 +249,145 @@ export function chunkText(
   return fragments;
 }
 
+function emptyExclusions(): Record<ExclusionReason, number> {
+  return {
+    out_of_scope: 0,
+    vgignore: 0,
+    control_file: 0,
+    sensitive_name: 0,
+    builtin_directory: 0,
+    outside_root: 0,
+    unavailable: 0,
+    not_regular_file: 0,
+    symlink: 0,
+    empty: 0,
+    too_large: 0,
+    binary: 0,
+    invalid_utf8: 0,
+  };
+}
+
 export async function prepareSource(
   requestedRoot: string,
   scopes: readonly string[],
   options: SourceOptions,
 ): Promise<PreparedSource> {
   const root = await realpath(resolve(requestedRoot));
-  const normalizedScopes = scopes.map((scope) => normalizePath(scope.replace(/^\.\//, '').replace(/\/$/, ''))).filter(Boolean);
-  const candidates = await listFiles(root);
+  const normalizedScopes = scopes
+    .map((scope) => normalizePath(scope.replace(/^\.\//, '').replace(/\/$/, '')))
+    .filter(Boolean);
+  const inventory = await listFiles(root);
+  const vgignore = await loadVgIgnore(root);
   const fragments: SourceFragment[] = [];
+  const excludedByReason = emptyExclusions();
   let filesScanned = 0;
+  let eligibleBytes = 0;
 
-  for (const path of candidates) {
-    if (!scopeMatches(path, normalizedScopes)) continue;
-    if (isSensitive(path)) continue;
-    if (path.split('/').some((segment) => DEFAULT_EXCLUDED_DIRS.has(segment))) continue;
+  const exclude = (reason: ExclusionReason): void => {
+    excludedByReason[reason] += 1;
+  };
+
+  for (const path of inventory.files) {
+    if (!scopeMatches(path, normalizedScopes)) {
+      exclude('out_of_scope');
+      continue;
+    }
+    if (path === '.vgignore') {
+      exclude('control_file');
+      continue;
+    }
+    if (isVgIgnored(path, vgignore.rules)) {
+      exclude('vgignore');
+      continue;
+    }
+    if (isSensitive(path)) {
+      exclude('sensitive_name');
+      continue;
+    }
+    if (path.split('/').some((segment) => DEFAULT_EXCLUDED_DIRS.has(segment))) {
+      exclude('builtin_directory');
+      continue;
+    }
 
     const absolute = resolve(root, path);
-    if (!isWithin(root, absolute)) continue;
+    if (!isWithin(root, absolute)) {
+      exclude('outside_root');
+      continue;
+    }
 
     let stat;
     try {
       stat = await lstat(absolute);
     } catch {
+      exclude('unavailable');
       continue;
     }
-    if (!stat.isFile() || stat.isSymbolicLink() || stat.size === 0 || stat.size > options.maxFileBytes) continue;
+    if (stat.isSymbolicLink()) {
+      exclude('symlink');
+      continue;
+    }
+    if (!stat.isFile()) {
+      exclude('not_regular_file');
+      continue;
+    }
+    if (stat.size === 0) {
+      exclude('empty');
+      continue;
+    }
+    if (stat.size > options.maxFileBytes) {
+      exclude('too_large');
+      continue;
+    }
+
+    let actual: string;
+    try {
+      actual = await realpath(absolute);
+    } catch {
+      exclude('unavailable');
+      continue;
+    }
+    if (!isWithin(root, actual)) {
+      exclude('outside_root');
+      continue;
+    }
 
     let buffer: Buffer;
     try {
-      buffer = await readFile(absolute);
+      buffer = await readFile(actual);
     } catch {
+      exclude('unavailable');
       continue;
     }
-    if (looksBinary(buffer)) continue;
+    if (looksBinary(buffer)) {
+      exclude('binary');
+      continue;
+    }
 
     const text = buffer.toString('utf8');
-    if (text.includes('\uFFFD')) continue;
+    if (text.includes('\uFFFD')) {
+      exclude('invalid_utf8');
+      continue;
+    }
+
     filesScanned += 1;
+    eligibleBytes += buffer.length;
     for (const fragment of chunkText(path, text, options)) {
       fragments.push({ ...fragment, id: `f${fragments.length}` });
     }
   }
 
-  return { filesScanned, fragments };
+  return {
+    filesScanned,
+    fragments,
+    report: {
+      discovery: inventory.discovery,
+      discoveredFiles: inventory.files.length,
+      eligibleFiles: filesScanned,
+      eligibleBytes,
+      fragments: fragments.length,
+      scopes: normalizedScopes,
+      vgignore: { present: vgignore.present, rules: vgignore.rules.length },
+      excludedByReason,
+    },
+  };
 }
