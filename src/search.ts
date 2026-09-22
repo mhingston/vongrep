@@ -68,6 +68,7 @@ export async function searchCode(options: SearchOptions, evaluator?: RelevanceEv
     maxFragmentLines: options.maxFragmentLines ?? DEFAULTS.maxFragmentLines,
     maxFragmentChars: options.maxFragmentChars ?? DEFAULTS.maxFragmentChars,
     overlapLines: options.overlapLines ?? DEFAULTS.overlapLines,
+    chunking: options.chunking ?? 'auto',
   });
   const scorer: RelevanceEvaluator = evaluator ?? new VonEvaluator();
   const scored: ScoredFragment[] = [];
@@ -88,6 +89,7 @@ export async function searchCode(options: SearchOptions, evaluator?: RelevanceEv
     filesScanned: prepared.filesScanned,
     fragmentsScored: scored.length,
     threshold,
+    chunking: prepared.report.chunking,
     ...(cache === null ? {} : { cache }),
     results: selectDistinctFragments(scored, threshold, limit),
   };
