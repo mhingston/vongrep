@@ -95,6 +95,8 @@ Example result:
 ```text
 vongrep: 2 result(s) from 84 fragments in 19 files
 model: von-1.1.0  threshold: 0.50
+chunking: auto (12 structured, 7 windowed)
+cache: 0 hit(s), 84 miss(es)
 
 src/auth/session.ts:41-76  score=0.934
 ...original source excerpt...
@@ -423,6 +425,8 @@ npm run verify
 ```
 
 `npm run verify` runs TypeScript checking, unit tests, and a production build. CI runs the same gate for pull requests.
+
+Normal CI does **not** start Von or run inference benchmarks. Retrieval benchmarks are intentionally explicit/manual because they require a Von endpoint and are evidence-gathering workflows rather than a deterministic build gate.
 
 ## Project status
 
