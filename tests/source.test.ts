@@ -27,6 +27,7 @@ secrets/*.json
 !secrets/example.json
 /root-only.ts
 *.min.js
+cache
 `);
 
   assert.equal(isVgIgnored('generated/output.ts', rules), true);
@@ -36,6 +37,7 @@ secrets/*.json
   assert.equal(isVgIgnored('root-only.ts', rules), true);
   assert.equal(isVgIgnored('nested/root-only.ts', rules), false);
   assert.equal(isVgIgnored('vendor/app.min.js', rules), true);
+  assert.equal(isVgIgnored('cache/entry.json', rules), true);
   assert.equal(isVgIgnored('src/app.ts', rules), false);
 });
 
@@ -84,4 +86,21 @@ test('prepareSource reports scope exclusions separately', async () => {
   assert.equal(prepared.report.eligibleFiles, 1);
   assert.equal(prepared.report.excludedByReason.out_of_scope, 1);
   assert.deepEqual(prepared.report.scopes, ['src']);
+});
+
+
+test('prepareSource fails closed when .vgignore exceeds its safety limit', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'vongrep-source-'));
+  await writeFile(join(root, '.vgignore'), 'x'.repeat(256 * 1024 + 1));
+  await writeFile(join(root, 'source.ts'), 'export const source = true;\n');
+
+  await assert.rejects(
+    prepareSource(root, [], {
+      maxFileBytes: 1024,
+      maxFragmentLines: 60,
+      maxFragmentChars: 3500,
+      overlapLines: 8,
+    }),
+    /\.vgignore exceeds the 256 KiB safety limit/,
+  );
 });
