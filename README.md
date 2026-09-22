@@ -39,6 +39,7 @@ vongrep deliberately returns **source evidence**, not an LLM-generated summary. 
 - No embedding database or persistent repository index; repeat scoring uses a local content-addressed cache.
 - Respects Git's normal ignored-file set and supports additional repository-local exclusions through `.vgignore`.
 - Skips symlinks, common build/dependency directories, binary files, oversized files, and obvious credential files.
+- Uses declaration-aware chunking for common source languages, with the original overlapping line windows as a safe fallback.
 - Returns original source excerpts with paths and inclusive line ranges.
 - Suppresses overlapping lower-ranked windows so top results contain more distinct evidence.
 - Supports repository-relative scopes.
@@ -142,6 +143,14 @@ vongrep search \
   --query "Where is the database transaction committed?"
 ```
 
+vongrep uses declaration-aware chunking by default. To force the original fixed-window behaviour for comparison:
+
+```bash
+vongrep search \
+  --chunking window \
+  --query "Where is the database transaction committed?"
+```
+
 ## Control the search boundary with `.vgignore`
 
 Add a `.vgignore` file at the repository root when files should be searchable by Git but should **not** be sent to Von.
@@ -179,6 +188,7 @@ vongrep inspect: 138 eligible file(s), 891 fragment(s), 612.4 KiB
 root: /path/to/project
 discovery: git
 scope: entire repository
+chunking: auto (86 structured, 52 windowed)
 .vgignore: 4 rule(s)
 discovered candidates: 151
 
@@ -232,6 +242,7 @@ The tool accepts:
 - `scope` — optional repository-relative paths.
 - `threshold` — optional minimum Von relevance probability.
 - `limit` — optional result limit.
+- `chunking` — optional `auto` or `window` override.
 
 ### Generic MCP configuration
 
@@ -303,6 +314,15 @@ A small self-search dataset is included:
 vongrep benchmark --dataset benchmarks/vongrep-smoke.json --limit 5
 ```
 
+Chunking can be compared against the legacy baseline with the same labelled dataset:
+
+```bash
+vongrep benchmark --dataset benchmark.json --chunking auto
+vongrep benchmark --dataset benchmark.json --chunking window
+```
+
+Each report records the chunking mode used. Compare Hit@K and MRR first; only keep the structural strategy if retrieval improves or stays equivalent while reducing noisy fragments.
+
 Use `--json` for the full per-case result. Benchmarks deliberately bypass the score cache so evaluation runs are not silently satisfied by earlier searches.
 
 ## Configure Von
@@ -342,7 +362,7 @@ Use `vongrep inspect`, `.vgignore`, and `--scope` when you need a narrower bound
 1. **Discover** — use `git ls-files -co --exclude-standard` where available, with a conservative filesystem fallback outside Git.
 2. **Narrow** — apply requested scopes, `.vgignore`, and built-in source-safety rules.
 3. **Authorize** — resolve each candidate and ensure the real path remains inside the repository root.
-4. **Chunk** — create bounded overlapping line windows so returned evidence remains precise.
+4. **Chunk** — in `auto` mode, align fragments to top-level declarations where reliable language patterns are available; pack small declarations together and window oversized declarations. Unsupported files and files without enough declaration boundaries use the original overlapping windows.
 5. **Cache** — reuse a content-addressed score when the model, question, source, and criterion are unchanged.
 6. **Score misses** — batch uncached excerpts into Von `noul` questions over `/v1/systemone`, sharing the user's search question as state.
 7. **Rank** — sort by affirmative probability and suppress lower-ranked overlapping excerpts.
@@ -350,20 +370,27 @@ Use `vongrep inspect`, `.vgignore`, and `--scope` when you need a narrower bound
 
 vongrep has no persistent repository index or embedding store. The score cache accelerates the same exhaustive scoring path rather than introducing a second retrieval mechanism.
 
+Declaration-aware chunking is intentionally parserless and conservative. It currently recognises top-level declarations in TypeScript/JavaScript, Python, Go, Rust, Java, C#, Kotlin, and Swift. It does not pretend to be an AST: when structure cannot be identified confidently, vongrep falls back to line windows.
+
 ## CLI reference
 
 ```text
 vongrep search --query <question> [--root <path>] [--scope <path>...]
-               [--threshold <0..1>] [--limit <n>] [--base-url <url>] [--no-cache] [--json]
+               [--threshold <0..1>] [--limit <n>] [--base-url <url>]
+               [--chunking auto|window] [--no-cache] [--json]
 
-vongrep inspect [--root <path>] [--scope <path>...] [--json]
+vongrep inspect [--root <path>] [--scope <path>...]
+                [--chunking auto|window] [--json]
 
 vongrep doctor [--base-url <url>]
 
 vongrep benchmark --dataset <path> [--root <path>] [--limit <k>]
-                  [--base-url <url>] [--json]
+                  [--base-url <url>] [--chunking auto|window] [--json]
 
-vongrep cache [status|clear] [--json]\n\nvongrep mcp [--root <path>] [--base-url <url>] [--no-cache]
+vongrep cache [status|clear] [--json]
+
+vongrep mcp [--root <path>] [--base-url <url>]
+            [--chunking auto|window] [--no-cache]
 
 vongrep --version
 ```
@@ -381,7 +408,7 @@ npm run verify
 
 vongrep is early-stage. The current goal is to establish whether local Von scoring is sufficiently useful for behaviour-oriented code retrieval, then improve the smallest mechanism demonstrated by benchmark evidence.
 
-Likely follow-on work includes structural chunking and larger cross-repository retrieval evaluations.
+The next useful step is to run the same labelled queries with `--chunking auto` and `--chunking window` on representative repositories, then only deepen structural parsing if the evidence justifies it.
 
 ## Acknowledgements
 
