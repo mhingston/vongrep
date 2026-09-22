@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 
 import { searchCode } from '../src/search.ts';
+import { prepareSource } from '../src/source.ts';
 import type { RelevanceEvaluator, ScoredFragment, SourceFragment } from '../src/types.ts';
 
 class FakeEvaluator implements RelevanceEvaluator {
@@ -26,4 +27,16 @@ test('searchCode ranks and filters original excerpts', async () => {
   assert.equal(result.results.length, 1);
   assert.equal(result.results[0]?.path, 'auth.ts');
   assert.match(result.results[0]?.text ?? '', /expireSession/);
+});
+
+test('prepared fragment ids are unique across files', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'vongrep-'));
+  await writeFile(join(root, 'a.ts'), 'export const a = 1;\n');
+  await writeFile(join(root, 'b.ts'), 'export const b = 2;\n');
+
+  const prepared = await prepareSource(root, [], {
+    maxFileBytes: 1024, maxFragmentLines: 60, maxFragmentChars: 3500, overlapLines: 8,
+  });
+  const ids = prepared.fragments.map((fragment) => fragment.id);
+  assert.equal(new Set(ids).size, ids.length);
 });
