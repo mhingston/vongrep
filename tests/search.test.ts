@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
+import { CachingEvaluator, ScoreCache } from '../src/cache.ts';
 import { searchCode, selectDistinctFragments } from '../src/search.ts';
 import { prepareSource } from '../src/source.ts';
 import type { RelevanceEvaluator, ScoredFragment, SourceFragment } from '../src/types.ts';
@@ -27,6 +28,20 @@ test('searchCode ranks and filters original excerpts', async () => {
   assert.equal(result.results.length, 1);
   assert.equal(result.results[0]?.path, 'auth.ts');
   assert.match(result.results[0]?.text ?? '', /expireSession/);
+});
+
+test('searchCode reports per-search cache hits and misses', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'vongrep-'));
+  const cacheDirectory = await mkdtemp(join(tmpdir(), 'vongrep-cache-'));
+  await writeFile(join(root, 'auth.ts'), 'export function expireSession() { return true; }\n');
+  await writeFile(join(root, 'other.ts'), 'export function add(a: number, b: number) { return a + b; }\n');
+
+  const evaluator = new CachingEvaluator(new FakeEvaluator(), new ScoreCache({ directory: cacheDirectory }));
+  const first = await searchCode({ root, query: 'Where is session expiry handled?' }, evaluator);
+  const second = await searchCode({ root, query: 'Where is session expiry handled?' }, evaluator);
+
+  assert.deepEqual(first.cache, { hits: 0, misses: 2, writes: 2 });
+  assert.deepEqual(second.cache, { hits: 2, misses: 0, writes: 0 });
 });
 
 test('prepared fragment ids are unique across files', async () => {
