@@ -173,7 +173,7 @@ export function parseVgIgnore(content: string): VgIgnoreRule[] {
 
     const hasSlash = line.includes('/');
     const prefix = anchored || hasSlash ? '^' : '(?:^|/)';
-    const suffix = '(?:/.*)?
+    const suffix = '(?:/.*)?$';
     rules.push({ negated, regex: new RegExp(`${prefix}${globBody(line)}${suffix}`) });
   }
 
