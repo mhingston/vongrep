@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { loadBenchmarkDataset, runBenchmark } from './benchmark.ts';
 import { prepareSource } from './source.ts';
 import { runMcpServer } from './mcp.ts';
 import { searchCode } from './search.ts';
@@ -57,7 +58,30 @@ function numberFlag(parsed: Parsed, key: string): number | undefined {
 }
 
 function help(): string {
-  return `vongrep - local semantic code search powered by Von\n\nUsage:\n  vongrep search --query "Where is session expiry handled?" [options]\n  vongrep inspect [--root .] [--scope src]\n  vongrep doctor [--base-url http://localhost:8000]\n  vongrep mcp [--root .] [--base-url http://localhost:8000]\n\nSearch options:\n  --root <path>        Repository root (default: .)\n  --scope <path>       Limit search to a repository-relative path; repeatable\n  --threshold <0..1>   Minimum Von relevance probability (default: 0.5)\n  --limit <n>          Maximum excerpts to return (default: 10)\n  --base-url <url>     Von server URL (default: VON_BASE_URL or http://localhost:8000)\n  --json               Emit JSON instead of human-readable output\n\nVon must be running locally, for example:\n  von serve --host 127.0.0.1 --port 8000`;
+  return `vongrep - local semantic code search powered by Von
+
+Usage:
+  vongrep search --query "Where is session expiry handled?" [options]
+  vongrep inspect [--root .] [--scope src]
+  vongrep doctor [--base-url http://localhost:8000]
+  vongrep benchmark --dataset benchmarks.json [--root .] [--limit 5]
+  vongrep mcp [--root .] [--base-url http://localhost:8000]
+
+Search options:
+  --root <path>        Repository root (default: .)
+  --scope <path>       Limit search to a repository-relative path; repeatable
+  --threshold <0..1>   Minimum Von relevance probability (default: 0.5)
+  --limit <n>          Maximum excerpts to return (default: 10)
+  --base-url <url>     Von server URL (default: VON_BASE_URL or http://localhost:8000)
+  --json               Emit JSON instead of human-readable output
+
+Benchmark options:
+  --dataset <path>     JSON dataset containing query + expected_paths cases
+  --limit <n>          Evaluate Hit@K using K results (default: 5)
+  --json               Emit the full benchmark result as JSON
+
+Von must be running locally, for example:
+  von serve --host 127.0.0.1 --port 8000`;
 }
 
 function render(result: Awaited<ReturnType<typeof searchCode>>): string {
@@ -70,6 +94,18 @@ function render(result: Awaited<ReturnType<typeof searchCode>>): string {
     lines.push(`${item.path}:${item.startLine}-${item.endLine}  score=${item.score.toFixed(3)}`);
     lines.push(item.text);
     lines.push('');
+  }
+  return lines.join('\n').trimEnd();
+}
+
+function renderBenchmark(result: Awaited<ReturnType<typeof runBenchmark>>): string {
+  const lines = [
+    `${result.dataset}: ${result.cases} case(s), Hit@${result.k} ${(result.hitAtK * 100).toFixed(1)}%, MRR ${result.mrr.toFixed(3)}, path recall ${(result.meanPathRecall * 100).toFixed(1)}%`,
+    '',
+  ];
+  for (const item of result.results) {
+    const rank = item.firstRelevantRank === null ? 'MISS' : `rank ${item.firstRelevantRank}`;
+    lines.push(`${rank.padEnd(7)}  ${item.query}`);
   }
   return lines.join('\n').trimEnd();
 }
@@ -112,6 +148,20 @@ async function main(): Promise<void> {
 
   if (parsed.command === 'mcp') {
     await runMcpServer({ root, baseURL, apiKey: process.env.VON_API_KEY });
+    return;
+  }
+
+  if (parsed.command === 'benchmark') {
+    const datasetPath = one(parsed, 'dataset') ?? parsed.positional[0];
+    if (!datasetPath) throw new Error('benchmark requires --dataset <path>');
+    const dataset = await loadBenchmarkDataset(datasetPath);
+    const evaluator = new VonEvaluator({ baseURL, apiKey: process.env.VON_API_KEY });
+    const result = await runBenchmark({
+      root,
+      dataset,
+      k: numberFlag(parsed, 'limit'),
+    }, evaluator);
+    console.log(parsed.flags.has('json') ? JSON.stringify(result, null, 2) : renderBenchmark(result));
     return;
   }
 
