@@ -175,7 +175,9 @@ export async function prepareSource(
     const text = buffer.toString('utf8');
     if (text.includes('\uFFFD')) continue;
     filesScanned += 1;
-    fragments.push(...chunkText(path, text, options));
+    for (const fragment of chunkText(path, text, options)) {
+      fragments.push({ ...fragment, id: `f${fragments.length}` });
+    }
   }
 
   return { filesScanned, fragments };
