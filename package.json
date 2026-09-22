@@ -1,0 +1,43 @@
+{
+  "name": "vongrep",
+  "version": "0.1.0",
+  "description": "Local semantic code search for coding agents, powered by Von System One decisions.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.6.0"
+  },
+  "bin": {
+    "vongrep": "dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node --input-type=module -e \"import { chmodSync } from 'node:fs'; chmodSync('dist/cli.js', 0o755)\"",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "verify": "npm run typecheck && npm test && npm run build",
+    "prepublishOnly": "npm run verify"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "typescript": "^5.9.2"
+  },
+  "keywords": [
+    "von",
+    "semantic-search",
+    "code-search",
+    "coding-agents",
+    "mcp",
+    "cli"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mhingston/vongrep.git"
+  },
+  "bugs": {
+    "url": "https://github.com/mhingston/vongrep/issues"
+  },
+  "homepage": "https://github.com/mhingston/vongrep#readme"
+}
