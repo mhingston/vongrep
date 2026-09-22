@@ -3,7 +3,10 @@ import { lstat, readFile, readdir, realpath } from 'node:fs/promises';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
 
-import type { SourceFragment } from './types.ts';
+import { chunkSource, chunkText } from './chunking.ts';
+import type { ChunkingMode, SourceFragment } from './types.ts';
+
+export { chunkText } from './chunking.ts';
 
 const execFileAsync = promisify(execFile);
 
@@ -25,6 +28,7 @@ export type SourceOptions = {
   maxFragmentLines: number;
   maxFragmentChars: number;
   overlapLines: number;
+  chunking?: ChunkingMode;
 };
 
 export type ExclusionReason =
@@ -49,6 +53,11 @@ export type SourceReport = {
   eligibleBytes: number;
   fragments: number;
   scopes: string[];
+  chunking: {
+    mode: ChunkingMode;
+    structuredFiles: number;
+    windowFiles: number;
+  };
   vgignore: {
     present: boolean;
     rules: number;
@@ -218,48 +227,6 @@ function looksBinary(buffer: Buffer): boolean {
   return sample.length > 0 && controls / sample.length > 0.02;
 }
 
-export function chunkText(
-  path: string,
-  text: string,
-  options: Pick<SourceOptions, 'maxFragmentLines' | 'maxFragmentChars' | 'overlapLines'>,
-): SourceFragment[] {
-  const lines = text.replaceAll('\r\n', '\n').split('\n');
-  const fragments: SourceFragment[] = [];
-  let start = 0;
-  let index = 0;
-
-  while (start < lines.length) {
-    let end = start;
-    let chars = 0;
-    while (end < lines.length && end - start < options.maxFragmentLines) {
-      const next = (lines[end]?.length ?? 0) + 1;
-      if (end > start && chars + next > options.maxFragmentChars) break;
-      chars += next;
-      end += 1;
-      if (chars >= options.maxFragmentChars) break;
-    }
-    if (end === start) end = Math.min(start + 1, lines.length);
-
-    const excerpt = lines.slice(start, end).join('\n');
-    if (excerpt.trim().length > 0) {
-      fragments.push({
-        id: `f${index}`,
-        path,
-        startLine: start + 1,
-        endLine: end,
-        text: excerpt,
-      });
-      index += 1;
-    }
-
-    if (end >= lines.length) break;
-    const nextStart = Math.max(start + 1, end - options.overlapLines);
-    start = nextStart;
-  }
-
-  return fragments;
-}
-
 function emptyExclusions(): Record<ExclusionReason, number> {
   return {
     out_of_scope: 0,
@@ -293,6 +260,9 @@ export async function prepareSource(
   const excludedByReason = emptyExclusions();
   let filesScanned = 0;
   let eligibleBytes = 0;
+  let structuredFiles = 0;
+  let windowFiles = 0;
+  const chunkingMode = options.chunking ?? 'auto';
 
   const exclude = (reason: ExclusionReason): void => {
     excludedByReason[reason] += 1;
@@ -382,7 +352,10 @@ export async function prepareSource(
 
     filesScanned += 1;
     eligibleBytes += buffer.length;
-    for (const fragment of chunkText(path, text, options)) {
+    const chunked = chunkSource(path, text, options, chunkingMode);
+    if (chunked.method === 'structure') structuredFiles += 1;
+    else windowFiles += 1;
+    for (const fragment of chunked.fragments) {
       fragments.push({ ...fragment, id: `f${fragments.length}` });
     }
   }
@@ -397,6 +370,7 @@ export async function prepareSource(
       eligibleBytes,
       fragments: fragments.length,
       scopes: normalizedScopes,
+      chunking: { mode: chunkingMode, structuredFiles, windowFiles },
       vgignore: { present: vgignore.present, rules: vgignore.rules.length },
       excludedByReason,
     },
