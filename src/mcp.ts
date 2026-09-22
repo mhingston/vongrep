@@ -2,7 +2,7 @@ import type { Readable, Writable } from 'node:stream';
 
 import { CachingEvaluator, ScoreCache } from './cache.ts';
 import { searchCode } from './search.ts';
-import type { RelevanceEvaluator } from './types.ts';
+import type { ChunkingMode, RelevanceEvaluator } from './types.ts';
 import { VonEvaluator } from './von.ts';
 
 const TOOL_NAME = 'semantic_search_code';
@@ -13,6 +13,7 @@ export type McpOptions = {
   baseURL?: string;
   apiKey?: string;
   cache?: boolean;
+  chunking?: ChunkingMode;
   input?: Readable;
   output?: Writable;
 };
@@ -64,6 +65,7 @@ export async function runMcpServer(options: McpOptions): Promise<void> {
             scope: { type: 'array', items: { type: 'string' } },
             limit: { type: 'integer', minimum: 1, maximum: 100 },
             threshold: { type: 'number', minimum: 0, maximum: 1 },
+            chunking: { type: 'string', enum: ['auto', 'window'] },
           },
           required: ['query'],
           additionalProperties: false,
@@ -81,12 +83,17 @@ export async function runMcpServer(options: McpOptions): Promise<void> {
       }
       const args = (message.params?.arguments ?? {}) as Record<string, unknown>;
       try {
+        const requestedChunking = args.chunking;
+        if (requestedChunking !== undefined && requestedChunking !== 'auto' && requestedChunking !== 'window') {
+          throw new Error('chunking must be auto or window');
+        }
         const result = await searchCode({
           root: options.root,
           query: String(args.query ?? ''),
           scopes: Array.isArray(args.scope) ? args.scope.filter((item): item is string => typeof item === 'string') : undefined,
           limit: typeof args.limit === 'number' ? args.limit : undefined,
           threshold: typeof args.threshold === 'number' ? args.threshold : undefined,
+          chunking: (requestedChunking as ChunkingMode | undefined) ?? options.chunking ?? 'auto',
         }, evaluator);
         send({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text: JSON.stringify(result) }], isError: false } });
       } catch (error) {
