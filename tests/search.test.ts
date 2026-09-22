@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import { searchCode } from '../src/search.ts';
+import { searchCode, selectDistinctFragments } from '../src/search.ts';
 import { prepareSource } from '../src/source.ts';
 import type { RelevanceEvaluator, ScoredFragment, SourceFragment } from '../src/types.ts';
 
@@ -39,4 +39,15 @@ test('prepared fragment ids are unique across files', async () => {
   });
   const ids = prepared.fragments.map((fragment) => fragment.id);
   assert.equal(new Set(ids).size, ids.length);
+});
+
+test('selectDistinctFragments suppresses lower-ranked overlapping windows', () => {
+  const ranked: ScoredFragment[] = [
+    { id: 'a', path: 'src/a.ts', startLine: 1, endLine: 10, text: 'a', score: 0.9 },
+    { id: 'b', path: 'src/a.ts', startLine: 8, endLine: 15, text: 'b', score: 0.8 },
+    { id: 'c', path: 'src/a.ts', startLine: 20, endLine: 30, text: 'c', score: 0.7 },
+    { id: 'd', path: 'src/b.ts', startLine: 1, endLine: 10, text: 'd', score: 0.6 },
+  ];
+
+  assert.deepEqual(selectDistinctFragments(ranked, 0.5, 10).map((item) => item.id), ['a', 'c', 'd']);
 });
