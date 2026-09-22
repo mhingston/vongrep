@@ -162,7 +162,7 @@ secrets/*.json
 
 The syntax intentionally follows the useful subset of gitignore conventions: blank lines and `#` comments, `*`, `?`, `**`, leading `/` for root anchoring, trailing `/` for directories, and `!` to undo an earlier `.vgignore` rule.
 
-`.vgignore` is **narrowing-only**. A negated rule can undo another `.vgignore` rule, but it cannot re-include a file excluded by Git discovery, built-in safety rules, or source validation.
+`.vgignore` is **narrowing-only**. A negated rule can undo another `.vgignore` rule, but it cannot re-include a file excluded by Git discovery, built-in safety rules, or source validation. If the file exists but cannot be read, is not valid UTF-8, or exceeds 256 KiB, vongrep fails closed rather than silently ignoring it.
 
 ## Inspect before searching
 
