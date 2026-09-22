@@ -69,7 +69,7 @@ export async function searchCode(options: SearchOptions, evaluator?: RelevanceEv
     maxFragmentChars: options.maxFragmentChars ?? DEFAULTS.maxFragmentChars,
     overlapLines: options.overlapLines ?? DEFAULTS.overlapLines,
   });
-  const scorer = evaluator ?? new VonEvaluator();
+  const scorer: RelevanceEvaluator = evaluator ?? new VonEvaluator();
   const scored: ScoredFragment[] = [];
   const cacheBefore = snapshotCacheStats(scorer);
 
