@@ -47,7 +47,7 @@ vongrep deliberately returns **source evidence**, not an LLM-generated summary. 
 - Offline `inspect` command to see scan size before inference.
 - `doctor` command to verify the Von service.
 - stdio MCP server for coding agents.
-- Built-in labelled retrieval benchmark with Hit@K, MRR, and expected-path recall.
+- Built-in labelled retrieval benchmark with path-level and excerpt-level Hit@K, MRR, and recall.
 - Zero runtime npm dependencies.
 
 ## Quick start
@@ -277,7 +277,7 @@ tool_timeout_sec = 120
 
 vongrep includes a small evaluation harness so search changes can be measured rather than judged by anecdotes.
 
-Create a labelled dataset:
+Create a labelled dataset. Path-only labels remain supported, but line ranges are better when evaluating chunking:
 
 ```json
 {
@@ -285,7 +285,13 @@ Create a labelled dataset:
   "cases": [
     {
       "query": "Where is session expiry handled?",
-      "expected_paths": ["src/auth/session.ts"]
+      "expected_locations": [
+        {
+          "path": "src/auth/session.ts",
+          "start_line": 41,
+          "end_line": 67
+        }
+      ]
     },
     {
       "query": "Where is the order-completed event published?",
@@ -296,6 +302,8 @@ Create a labelled dataset:
 }
 ```
 
+`expected_locations` use inclusive line ranges. A returned excerpt is location-relevant when it comes from the same path and overlaps the labelled range. If locations are supplied, their paths are automatically included in the path-level ground truth.
+
 Run it:
 
 ```bash
@@ -304,9 +312,15 @@ vongrep benchmark --dataset benchmark.json --limit 5
 
 The report includes:
 
-- **Hit@K** — how often at least one expected file appears in the first K results.
-- **MRR** — mean reciprocal rank of the first expected file.
+- **Path Hit@K** — how often at least one expected file appears in the first K results.
+- **Path MRR** — mean reciprocal rank of the first expected file.
 - **Path recall** — how many labelled expected paths were retrieved.
+- **Location Hit@K** — how often a returned excerpt overlaps a labelled source range.
+- **Location MRR** — reciprocal-rank quality of the first overlapping excerpt.
+- **Location recall** — how many labelled ranges were covered.
+- **Mean fragments scored** and **total runtime** — useful for seeing whether a chunking strategy reduces scoring work.
+
+Location metrics are calculated only for cases with `expected_locations`; path-only datasets remain valid.
 
 A small self-search dataset is included:
 
@@ -314,14 +328,17 @@ A small self-search dataset is included:
 vongrep benchmark --dataset benchmarks/vongrep-smoke.json --limit 5
 ```
 
-Chunking can be compared against the legacy baseline with the same labelled dataset:
+Compare declaration-aware chunking against the legacy baseline in one run:
 
 ```bash
-vongrep benchmark --dataset benchmark.json --chunking auto
-vongrep benchmark --dataset benchmark.json --chunking window
+vongrep benchmark \
+  --dataset benchmark.json \
+  --compare-chunking
 ```
 
-Each report records the chunking mode used. Compare Hit@K and MRR first; only keep the structural strategy if retrieval improves or stays equivalent while reducing noisy fragments.
+The comparison reports `auto`, `window`, and the `auto - window` delta for path metrics, location metrics, mean fragments scored, and runtime. You can still run either mode independently with `--chunking auto` or `--chunking window`.
+
+For chunking decisions, prefer the line-aware location metrics over path metrics: both modes may retrieve the correct file while only one retrieves the useful source region. Treat fragment-count/runtime reductions as secondary to retrieval quality.
 
 Use `--json` for the full per-case result. Benchmarks deliberately bypass the score cache so evaluation runs are not silently satisfied by earlier searches.
 
@@ -387,6 +404,9 @@ vongrep doctor [--base-url <url>]
 vongrep benchmark --dataset <path> [--root <path>] [--limit <k>]
                   [--base-url <url>] [--chunking auto|window] [--json]
 
+vongrep benchmark --dataset <path> [--root <path>] [--limit <k>]
+                  [--base-url <url>] --compare-chunking [--json]
+
 vongrep cache [status|clear] [--json]
 
 vongrep mcp [--root <path>] [--base-url <url>]
@@ -408,7 +428,7 @@ npm run verify
 
 vongrep is early-stage. The current goal is to establish whether local Von scoring is sufficiently useful for behaviour-oriented code retrieval, then improve the smallest mechanism demonstrated by benchmark evidence.
 
-The next useful step is to run the same labelled queries with `--chunking auto` and `--chunking window` on representative repositories, then only deepen structural parsing if the evidence justifies it.
+The next useful step is to run `--compare-chunking` on representative, line-labelled repositories. Only deepen structural parsing if location-level retrieval improves or remains equivalent while scoring materially fewer fragments.
 
 ## Acknowledgements
 
