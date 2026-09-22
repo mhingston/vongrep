@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { loadBenchmarkDataset, runBenchmark } from './benchmark.ts';
+import { compareChunking, loadBenchmarkDataset, runBenchmark } from './benchmark.ts';
 import { CachingEvaluator, ScoreCache } from './cache.ts';
 import { prepareSource } from './source.ts';
 import { runMcpServer } from './mcp.ts';
@@ -80,6 +80,7 @@ Usage:
   vongrep inspect [--root .] [--scope src] [--chunking auto|window] [--json]
   vongrep doctor [--base-url http://localhost:8000]
   vongrep benchmark --dataset benchmarks.json [--root .] [--limit 5] [--chunking auto|window]
+  vongrep benchmark --dataset benchmarks.json --compare-chunking [--limit 5]
   vongrep cache [status|clear] [--json]
   vongrep mcp [--root .] [--base-url http://localhost:8000] [--chunking auto|window] [--no-cache]
 
@@ -97,6 +98,7 @@ Benchmark options:
   --dataset <path>     JSON dataset containing query + expected_paths cases
   --limit <n>          Evaluate Hit@K using K results (default: 5)
   --chunking <mode>     auto (default) or window
+  --compare-chunking    Run auto and window against the same dataset
   --json               Emit the full benchmark result as JSON
   Benchmarks always bypass the score cache.
 
@@ -123,15 +125,45 @@ function render(result: Awaited<ReturnType<typeof searchCode>>): string {
 }
 
 function renderBenchmark(result: Awaited<ReturnType<typeof runBenchmark>>): string {
+  const location = result.locationCases === 0
+    ? 'locations: no line-labelled cases'
+    : `location Hit@${result.k} ${((result.locationHitAtK ?? 0) * 100).toFixed(1)}%, location MRR ${(result.locationMrr ?? 0).toFixed(3)}, location recall ${((result.meanLocationRecall ?? 0) * 100).toFixed(1)}%`;
   const lines = [
-    `${result.dataset}: ${result.cases} case(s), chunking ${result.chunking}, Hit@${result.k} ${(result.hitAtK * 100).toFixed(1)}%, MRR ${result.mrr.toFixed(3)}, path recall ${(result.meanPathRecall * 100).toFixed(1)}%`,
+    `${result.dataset}: ${result.cases} case(s), chunking ${result.chunking}`,
+    `path Hit@${result.k} ${(result.hitAtK * 100).toFixed(1)}%, MRR ${result.mrr.toFixed(3)}, path recall ${(result.meanPathRecall * 100).toFixed(1)}%`,
+    location,
+    `mean fragments scored: ${result.meanFragmentsScored.toFixed(1)}  total time: ${result.totalElapsedMs}ms`,
     '',
   ];
   for (const item of result.results) {
     const rank = item.firstRelevantRank === null ? 'MISS' : `rank ${item.firstRelevantRank}`;
-    lines.push(`${rank.padEnd(7)}  ${item.query}`);
+    const locationRank = item.expectedLocations.length === 0
+      ? ''
+      : item.firstLocationRank === null ? '  location MISS' : `  location rank ${item.firstLocationRank}`;
+    lines.push(`${rank.padEnd(7)}  ${item.query}${locationRank}`);
   }
   return lines.join('\n').trimEnd();
+}
+
+function renderComparison(result: Awaited<ReturnType<typeof compareChunking>>): string {
+  const percent = (value: number | null): string => value === null ? 'n/a' : `${(value * 100).toFixed(1)}%`;
+  const signed = (value: number | null, scale = 1): string => {
+    if (value === null) return 'n/a';
+    const adjusted = value * scale;
+    return `${adjusted >= 0 ? '+' : ''}${adjusted.toFixed(scale === 100 ? 1 : 3)}`;
+  };
+  return [
+    `${result.dataset}: chunking comparison at K=${result.k}`,
+    '',
+    'metric                  auto       window     delta(auto-window)',
+    `path Hit@K              ${percent(result.auto.hitAtK).padEnd(10)} ${percent(result.window.hitAtK).padEnd(10)} ${signed(result.delta.hitAtK, 100)}pp`,
+    `path MRR                ${result.auto.mrr.toFixed(3).padEnd(10)} ${result.window.mrr.toFixed(3).padEnd(10)} ${signed(result.delta.mrr)}`,
+    `location Hit@K          ${percent(result.auto.locationHitAtK).padEnd(10)} ${percent(result.window.locationHitAtK).padEnd(10)} ${signed(result.delta.locationHitAtK, 100)}pp`,
+    `location MRR            ${(result.auto.locationMrr?.toFixed(3) ?? 'n/a').padEnd(10)} ${(result.window.locationMrr?.toFixed(3) ?? 'n/a').padEnd(10)} ${signed(result.delta.locationMrr)}`,
+    `location recall         ${percent(result.auto.meanLocationRecall).padEnd(10)} ${percent(result.window.meanLocationRecall).padEnd(10)} ${signed(result.delta.meanLocationRecall, 100)}pp`,
+    `mean fragments scored   ${result.auto.meanFragmentsScored.toFixed(1).padEnd(10)} ${result.window.meanFragmentsScored.toFixed(1).padEnd(10)} ${signed(result.delta.meanFragmentsScored)}`,
+    `total time              `${result.auto.totalElapsedMs}ms`.padEnd(10) + ' ' + `${result.window.totalElapsedMs}ms`.padEnd(10) + ' ' + `${result.delta.totalElapsedMs >= 0 ? '+' : ''}${result.delta.totalElapsedMs}ms`,
+  ].join('\n');
 }
 
 function humanBytes(bytes: number): string {
@@ -236,6 +268,15 @@ async function main(): Promise<void> {
     if (!datasetPath) throw new Error('benchmark requires --dataset <path>');
     const dataset = await loadBenchmarkDataset(datasetPath);
     const evaluator = new VonEvaluator({ baseURL, apiKey: process.env.VON_API_KEY });
+    if (parsed.flags.has('compare-chunking')) {
+      const result = await compareChunking({
+        root,
+        dataset,
+        k: numberFlag(parsed, 'limit'),
+      }, evaluator);
+      console.log(parsed.flags.has('json') ? JSON.stringify(result, null, 2) : renderComparison(result));
+      return;
+    }
     const result = await runBenchmark({
       root,
       dataset,
