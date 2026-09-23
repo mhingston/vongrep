@@ -13,10 +13,16 @@ making changes.
 
 ## Prerequisites
 
-Install the CLI from npm and ensure a Von server is available:
+Until a package release is published, install the CLI from a checkout and
+ensure a Von server is available:
 
 ```bash
-npm install --global @mhingston5/vongrep
+git clone https://github.com/mhingston/vongrep.git
+cd vongrep
+npm install
+npm run build
+npm link
+
 von serve --host 127.0.0.1 --port 8000
 ```
 
@@ -28,7 +34,8 @@ source excerpts being scored, so narrow the search boundary before using one.
 
 1. Check the service with `vongrep doctor` when a search fails to connect.
 2. Use `vongrep inspect --root <repo> --json` to review the files and fragments
-   that would be eligible for scoring.
+   that would be eligible for scoring. Narrow the boundary with `--scope` or a
+   repository-local `.vgignore` when needed.
 3. Search with a behavior-oriented question:
 
    ```bash
@@ -41,11 +48,11 @@ source excerpts being scored, so narrow the search boundary before using one.
    ```
 
    Repeat `--scope` for multiple repository-relative paths. Use `--threshold`
-   to require stronger relevance, `--chunking window` only when comparing with
-   the legacy fixed-window behavior, and `--no-cache` when a fresh score is
-   required.
+   to require stronger relevance. Declaration-aware `auto` chunking is the
+   default; use `--chunking window` only when comparing with the legacy
+   fixed-window behavior. Use `--no-cache` when a fresh score is required.
 4. Follow each returned `path`, `startLine`, and `endLine` back to the original
-   source. Treat the excerpts as evidence, not as a generated explanation.
+   source. Treat excerpts as retrieval evidence, not as a generated explanation.
 
 Use `vongrep cache status` or `vongrep cache clear` to inspect or reset the
 local score cache. Cache entries contain hashes, scores, and timestamps rather
@@ -58,6 +65,29 @@ build/dependency directories, binaries, symlinks, oversized files, and obvious
 credential filenames. Add a repository-local `.vgignore` or pass `--scope` for
 additional narrowing. These filters reduce exposure but are not a guarantee
 that source is free of secrets.
+
+## Evaluate retrieval changes
+
+Do not benchmark as part of normal code search. Use the benchmark workflow when
+changing retrieval behavior, chunking, or search heuristics and labelled
+examples are available.
+
+Prefer `expected_locations` with inclusive source line ranges over path-only
+labels when evaluating chunking, because two strategies can both find the
+correct file while returning different source regions.
+
+Compare declaration-aware chunking with the legacy baseline using:
+
+```bash
+vongrep benchmark \
+  --dataset benchmark.json \
+  --compare-chunking
+```
+
+Prioritize location Hit@K, location MRR, and location recall. Treat fragment
+count and runtime as secondary unless retrieval quality is equivalent. These
+benchmarks require a Von endpoint and are intentionally separate from normal
+CI.
 
 ## MCP mode
 
